@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 
 class MpiAdam(object):
-    def __init__(self, var_list, *, beta1=0.9, beta2=0.999, epsilon=1e-08, scale_grad_by_procs=True, comm=None):
+    def __init__(self, var_list, *, beta1=0.9, beta2=0.999, epsilon=1e-08, scale_grad_by_procs=True, comm=None, updateParams=True):
         self.var_list = var_list
         self.beta1 = beta1
         self.beta2 = beta2
@@ -17,6 +17,7 @@ class MpiAdam(object):
         self.setfromflat = U.SetFromFlat(var_list)
         self.getflat = U.GetFlat(var_list)
         self.comm = MPI.COMM_WORLD if comm is None else comm
+        self.updateParams = updateParams
 
     def update(self, localg, stepsize):
         if self.t % 100 == 0:
@@ -32,7 +33,10 @@ class MpiAdam(object):
         self.m = self.beta1 * self.m + (1 - self.beta1) * globalg
         self.v = self.beta2 * self.v + (1 - self.beta2) * (globalg * globalg)
         step = (- a) * self.m / (np.sqrt(self.v) + self.epsilon)
-        self.setfromflat(self.getflat() + step)
+        if self.updateParams:            
+            self.setfromflat(self.getflat() + step)
+        else:
+            return step
 
     def sync(self):
         theta = self.getflat()
@@ -48,6 +52,9 @@ class MpiAdam(object):
             thetaroot = np.empty_like(thetalocal)
             self.comm.Bcast(thetaroot, root=0)
             assert (thetaroot == thetalocal).all(), (thetaroot, thetalocal)
+
+    def update_from_step(self, step):
+        self.setfromflat(self.getflat() + step)
 
 @U.in_session
 def test_MpiAdam():
